@@ -1021,16 +1021,26 @@ function initFirebaseListeners() {
 // =====================================================================
 // OFFLINE DETECTION
 // =====================================================================
-function updateOnlineStatus() {
+async function checkRealConnectivity() {
+  // Verificar conectividad real haciendo un fetch ligero
+  try {
+    const res = await fetch('https://www.gstatic.com/generate_204', { method: 'HEAD', cache: 'no-store', mode: 'no-cors' });
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
+async function updateOnlineStatus() {
   const banner = document.getElementById('offline-banner');
   const header = document.getElementById('main-header');
-  if (!navigator.onLine) {
+  const reallyOnline = navigator.onLine ? await checkRealConnectivity() : false;
+  if (!reallyOnline) {
     banner.classList.add('show');
     header.classList.add('has-banner');
   } else {
     banner.classList.remove('show');
     header.classList.remove('has-banner');
-    // Reintentar emails pendientes cuando vuelve la red
     if (pendingEmails.length > 0) {
       setTimeout(retryPendingEmails, 2000);
     }
@@ -1053,11 +1063,12 @@ function initEmailJS() {
 
 async function sendEmailWithQR(ticket) {
   if (!emailJSReady || !EJS_CONFIG.serviceId || !EJS_CONFIG.templateId) {
-    // Guardar como pendiente si hay config pero sin red
-    if (EJS_CONFIG.publicKey && !navigator.onLine) {
+    // No hay config de EmailJS — poner en cola si al menos hay publicKey
+    if (EJS_CONFIG.publicKey) {
       pendingEmails.push({ ticketId: ticket.id, attempts: 0, addedAt: Date.now() });
       saveToStorage();
       updatePendingBadge();
+      return 'queued';
     }
     return 'no-config';
   }
@@ -1068,10 +1079,17 @@ async function sendEmailWithQR(ticket) {
   document.body.appendChild(tempDiv);
   new QRCode(tempDiv, { text: ticket.id, width: 200, height: 200, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.H });
 
-  await new Promise(r => setTimeout(r, 300));
+  // Esperar a que el canvas del QR esté listo
+  await new Promise(r => setTimeout(r, 600));
   const canvas = tempDiv.querySelector('canvas');
-  const qrBase64 = canvas ? canvas.toDataURL('image/png') : '';
+  let qrBase64 = '';
+  if (canvas) {
+    try { qrBase64 = canvas.toDataURL('image/png'); } catch(e) { console.warn('QR canvas error:', e); }
+  }
   document.body.removeChild(tempDiv);
+  if (!qrBase64) {
+    console.warn('No se pudo generar QR base64 para el email');
+  }
 
   const params = {
     to_email: ticket.email,
@@ -1653,7 +1671,7 @@ function scanFromCamera() {
   ctx.drawImage(video, 0, 0);
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+  const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
 
   if (code && code.data) {
     // QR detectado
