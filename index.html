@@ -11,7 +11,7 @@
 
 <!-- External libs -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
 
 <!-- Firebase -->
 <script type="module">
@@ -1614,41 +1614,66 @@ async function toggleCamera() {
   }
 }
 
-async function startCamera() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showToast('⚠️ Tu navegador no soporta cámara', 'error'); return;
-  }
-  try {
-    const constraints = {
-      video: {
-        facingMode: { ideal: 'environment' }, // Cámara trasera en móvil
-        width: { ideal: 640 }, height: { ideal: 480 }
-      }
-    };
-    cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-    const video = document.getElementById('camera-video');
-    video.srcObject = cameraStream;
-    await video.play();
+let zxingReader = null;
 
+async function startCamera() {
+  try {
+    // Usar ZXing — funciona correctamente en iPhone/Safari
+    if (!window.ZXing) {
+      showToast('⚠️ Cargando escáner...', 'info');
+      await new Promise(r => setTimeout(r, 1500));
+      if (!window.ZXing) { showToast('❌ Error cargando escáner', 'error'); return; }
+    }
+
+    const hints = new Map();
+    const formats = [window.ZXing.BarcodeFormat.QR_CODE];
+    hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+
+    zxingReader = new window.ZXing.BrowserQRCodeReader(hints);
+
+    const videoEl = document.getElementById('camera-video');
     document.getElementById('scanner-idle').classList.add('hidden');
     document.getElementById('camera-container').classList.add('active');
     document.getElementById('btn-camera').textContent = '⏹ Detener cámara';
     document.getElementById('btn-camera').classList.add('active');
     cameraActive = true;
-
-    // Iniciar escaneo continuo
-    cameraInterval = setInterval(scanFromCamera, 250);
     showToast('📷 Cámara activa — apunta al QR', 'info');
+
+    // ZXing maneja el stream internamente
+    const devices = await window.ZXing.BrowserCodeReader.listVideoInputDevices();
+    // Preferir cámara trasera
+    const backCamera = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[devices.length - 1];
+    const deviceId = backCamera ? backCamera.deviceId : undefined;
+
+    zxingReader.decodeFromVideoDevice(deviceId, videoEl, (result, err) => {
+      if (result) {
+        const scanInput = document.getElementById('scan-input');
+        scanInput.value = result.getText();
+        stopCamera();
+        scanTicket();
+      }
+      // err es normal cuando no hay QR en frame, ignorar
+    });
+
   } catch (err) {
+    cameraActive = false;
     if (err.name === 'NotAllowedError') {
       showToast('❌ Permiso de cámara denegado', 'error');
     } else {
-      showToast('❌ No se pudo acceder a la cámara', 'error');
+      showToast('❌ No se pudo acceder a la cámara: ' + err.message, 'error');
     }
+    document.getElementById('scanner-idle').classList.remove('hidden');
+    document.getElementById('camera-container').classList.remove('active');
+    document.getElementById('btn-camera').textContent = '📷 Activar cámara para escanear QR';
+    document.getElementById('btn-camera').classList.remove('active');
   }
 }
 
 function stopCamera() {
+  if (zxingReader) {
+    try { zxingReader.reset(); } catch(e) {}
+    zxingReader = null;
+  }
   if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
   clearInterval(cameraInterval); cameraInterval = null;
   const video = document.getElementById('camera-video');
@@ -1661,25 +1686,7 @@ function stopCamera() {
 }
 
 function scanFromCamera() {
-  const video = document.getElementById('camera-video');
-  if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
-
-  const canvas = document.getElementById('camera-canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0);
-
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-
-  if (code && code.data) {
-    // QR detectado
-    const scanInput = document.getElementById('scan-input');
-    scanInput.value = code.data;
-    stopCamera();
-    scanTicket();
-  }
+  // No usado con ZXing — ZXing escanea automáticamente
 }
 
 // =====================================================================
