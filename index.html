@@ -11,7 +11,7 @@
 
 <!-- External libs -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 
 <!-- Firebase -->
 <script type="module">
@@ -1618,20 +1618,15 @@ let zxingReader = null;
 
 async function startCamera() {
   try {
-    // Usar ZXing — funciona correctamente en iPhone/Safari
     if (!window.ZXing) {
       showToast('⚠️ Cargando escáner...', 'info');
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 2000));
       if (!window.ZXing) { showToast('❌ Error cargando escáner', 'error'); return; }
     }
 
-    const hints = new Map();
-    const formats = [window.ZXing.BarcodeFormat.QR_CODE];
-    hints.set(window.ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-
-    zxingReader = new window.ZXing.BrowserQRCodeReader(hints);
-
+    zxingReader = new window.ZXing.BrowserQRCodeReader();
     const videoEl = document.getElementById('camera-video');
+
     document.getElementById('scanner-idle').classList.add('hidden');
     document.getElementById('camera-container').classList.add('active');
     document.getElementById('btn-camera').textContent = '⏹ Detener cámara';
@@ -1639,20 +1634,22 @@ async function startCamera() {
     cameraActive = true;
     showToast('📷 Cámara activa — apunta al QR', 'info');
 
-    // ZXing maneja el stream internamente
-    const devices = await window.ZXing.BrowserCodeReader.listVideoInputDevices();
-    // Preferir cámara trasera
-    const backCamera = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[devices.length - 1];
-    const deviceId = backCamera ? backCamera.deviceId : undefined;
+    // Obtener cámara trasera usando constraints directamente
+    const constraints = {
+      video: { facingMode: { ideal: 'environment' } }
+    };
+    cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoEl.srcObject = cameraStream;
+    await videoEl.play();
 
-    zxingReader.decodeFromVideoDevice(deviceId, videoEl, (result, err) => {
+    // Escanear continuamente con ZXing desde el video
+    zxingReader.decodeFromStream(cameraStream, videoEl, (result, err) => {
       if (result) {
         const scanInput = document.getElementById('scan-input');
         scanInput.value = result.getText();
         stopCamera();
         scanTicket();
       }
-      // err es normal cuando no hay QR en frame, ignorar
     });
 
   } catch (err) {
@@ -1660,7 +1657,7 @@ async function startCamera() {
     if (err.name === 'NotAllowedError') {
       showToast('❌ Permiso de cámara denegado', 'error');
     } else {
-      showToast('❌ No se pudo acceder a la cámara: ' + err.message, 'error');
+      showToast('❌ Error: ' + err.message, 'error');
     }
     document.getElementById('scanner-idle').classList.remove('hidden');
     document.getElementById('camera-container').classList.remove('active');
@@ -1674,10 +1671,13 @@ function stopCamera() {
     try { zxingReader.reset(); } catch(e) {}
     zxingReader = null;
   }
-  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
   clearInterval(cameraInterval); cameraInterval = null;
   const video = document.getElementById('camera-video');
-  video.srcObject = null;
+  try { video.srcObject = null; } catch(e) {}
   document.getElementById('scanner-idle').classList.remove('hidden');
   document.getElementById('camera-container').classList.remove('active');
   document.getElementById('btn-camera').textContent = '📷 Activar cámara para escanear QR';
@@ -1686,7 +1686,7 @@ function stopCamera() {
 }
 
 function scanFromCamera() {
-  // No usado con ZXing — ZXing escanea automáticamente
+  // No usado con ZXing
 }
 
 // =====================================================================
