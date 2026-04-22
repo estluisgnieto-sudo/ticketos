@@ -1104,7 +1104,7 @@ async function sendEmailWithQR(ticket) {
           ${eventConfig.date ? `<p style="margin:6px 0;"><span style="color:#b78fff;">📅 Fecha:</span> ${eventConfig.date}</p>` : ''}
           ${eventConfig.venue ? `<p style="margin:6px 0;"><span style="color:#b78fff;">🏛 Lugar:</span> ${eventConfig.venue}</p>` : ''}
         </div>
-        ${qrBase64 ? `<div style="text-align:center;margin:24px 0;"><img src="cid:qrcode" width="220" height="220" alt="QR Code" style="border-radius:8px;" /></div>` : ''}
+        ${qrBase64 ? `<div style="text-align:center;margin:24px 0;background:#fff;border-radius:12px;padding:16px;display:inline-block;width:100%;box-sizing:border-box;"><img src="data:image/png;base64,${qrBase64}" width="220" height="220" alt="QR Code" style="display:block;margin:0 auto;" /></div>` : ''}
         <p style="color:#7a6fa0;font-size:13px;text-align:center;">Conserva este correo y presenta el QR en la entrada.</p>
       </div>
     </div>`;
@@ -1113,12 +1113,7 @@ async function sendEmailWithQR(ticket) {
     sender: { name: BREVO_CONFIG.senderName || 'TicketOS', email: BREVO_CONFIG.senderEmail },
     to: [{ email: ticket.email, name: ticket.name }],
     subject: `🎟 Tu entrada — ${eventConfig.name || 'Evento'}`,
-    htmlContent,
-    attachment: qrBase64 ? [{
-      content: qrBase64,
-      name: `QR_${ticket.id}.png`,
-      contentId: 'qrcode'
-    }] : undefined
+    htmlContent
   };
 
   try {
