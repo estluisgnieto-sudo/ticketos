@@ -1113,7 +1113,11 @@ async function sendEmailWithQR(ticket) {
     sender: { name: BREVO_CONFIG.senderName || 'TicketOS', email: BREVO_CONFIG.senderEmail },
     to: [{ email: ticket.email, name: ticket.name }],
     subject: `🎟 Tu entrada — ${eventConfig.name || 'Evento'}`,
-    htmlContent
+    htmlContent,
+    attachment: qrBase64 ? [{
+      content: qrBase64,
+      name: `QR_${ticket.id}.png`
+    }] : undefined
   };
 
   try {
