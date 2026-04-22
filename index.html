@@ -688,25 +688,36 @@
     </div>
 
     <div class="emailjs-section">
-      <div class="card-title">📧 Configuración EmailJS</div>
+      <div class="card-title">📧 Configuración Brevo (Email)</div>
       <p style="font-size:12px; color:var(--muted); font-family:'DM Mono',monospace; margin-bottom:14px; line-height:1.6;">
-        Crea cuenta gratuita en <strong style="color:var(--accent)">emailjs.com</strong> y pega tus credenciales aquí.
+        Crea cuenta gratuita en <strong style="color:var(--accent)">brevo.com</strong> → SMTP &amp; API → API Keys → copia tu clave aquí.
       </p>
       <div class="form-group">
-        <label>Public Key</label>
-        <input type="text" id="cfg-ejs-pubkey" placeholder="user_XXXXXXXXXX" />
+        <label>Brevo API Key</label>
+        <input type="text" id="cfg-brevo-key" placeholder="xkeysib-XXXXXXXXXXXXXXXX" />
       </div>
       <div class="form-group">
-        <label>Service ID</label>
-        <input type="text" id="cfg-ejs-service" placeholder="service_XXXXXXX" />
+        <label>Nombre remitente</label>
+        <input type="text" id="cfg-brevo-name" placeholder="Ej. TicketOS Eventos" />
       </div>
       <div class="form-group">
-        <label>Template ID</label>
-        <input type="text" id="cfg-ejs-template" placeholder="template_XXXXXXX" />
+        <label>Correo remitente</label>
+        <input type="email" id="cfg-brevo-email" placeholder="tuemail@correo.com" />
       </div>
     </div>
 
     <button class="btn-primary" onclick="saveSettings()">💾 Guardar configuración</button>
+    <div style="margin-top:16px; border-top:1px solid var(--border); padding-top:16px;">
+      <div class="card-title">📥 Carga masiva por CSV</div>
+      <p style="font-size:12px; color:var(--muted); font-family:'DM Mono',monospace; margin-bottom:14px; line-height:1.6;">
+        Sube un CSV con columnas: <strong style="color:var(--accent)">nombre, cedula, correo, tipo</strong>
+      </p>
+      <input type="file" id="csv-upload" accept=".csv" style="display:none" onchange="importCSV(event)" />
+      <button class="btn-primary" onclick="document.getElementById('csv-upload').click()" style="background:var(--surface2); color:var(--accent); border:1px solid var(--accent);">
+        📂 Seleccionar archivo CSV
+      </button>
+      <div id="csv-progress" style="display:none; margin-top:12px; font-family:'DM Mono',monospace; font-size:12px; color:var(--muted); text-align:center;"></div>
+    </div>
   </div>
 </div>
 
@@ -782,7 +793,7 @@
         </select>
       </div>
       <button class="btn-primary" id="btn-generate" onclick="generateTicket()">⚡ Generar Entrada + QR</button>
-      <p class="hint" id="email-hint">* Configura EmailJS para envío automático al correo</p>
+      <p class="hint" id="email-hint">* Configura Brevo para envío automático del QR al correo</p>
     </div>
 
     <div class="card">
@@ -885,15 +896,7 @@
 </main>
 
 <!-- EmailJS SDK (carga asíncrona, no bloquea offline) -->
-<script>
-(function() {
-  var s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js';
-  s.async = true;
-  s.onload = function() { initEmailJS(); };
-  document.head.appendChild(s);
-})();
-</script>
+<!-- Brevo no necesita SDK externo — usa fetch directo -->
 
 <script>
 // =====================================================================
@@ -901,12 +904,11 @@
 // =====================================================================
 const ADMIN_PASSWORD = 'admin2025'; // 🔑 Cambia esta clave
 
-// EmailJS — Completa desde ⚙️ Configurar evento en la UI
-// O directamente aquí:
-let EJS_CONFIG = {
-  publicKey: '',
-  serviceId: '',
-  templateId: ''
+// Brevo — Completa desde ⚙️ Configurar evento en la UI
+let BREVO_CONFIG = {
+  apiKey: '',
+  senderName: '',
+  senderEmail: ''
 };
 
 // =====================================================================
@@ -923,14 +925,14 @@ let cameraActive = false;
 let cameraStream = null;
 let cameraInterval = null;
 let pendingEmails = [];
-let emailJSReady = false;
+let brevoReady = false;
 
 // =====================================================================
 // LOCAL STORAGE — Persistencia offline
 // =====================================================================
 const LS_TICKETS = 'ticketos_tickets_v2';
 const LS_EVENT = 'ticketos_event_v1';
-const LS_EJS = 'ticketos_emailjs_v1';
+const LS_EJS = 'ticketos_brevo_v1';
 const LS_PENDING = 'ticketos_pending_emails_v1';
 
 function saveToStorage() {
@@ -954,7 +956,7 @@ function loadFromStorage() {
     const e = localStorage.getItem(LS_EVENT);
     if (e) eventConfig = JSON.parse(e);
     const ejs = localStorage.getItem(LS_EJS);
-    if (ejs) EJS_CONFIG = Object.assign(EJS_CONFIG, JSON.parse(ejs));
+    if (ejs) BREVO_CONFIG = Object.assign(BREVO_CONFIG, JSON.parse(ejs));
     const p = localStorage.getItem(LS_PENDING);
     if (p) pendingEmails = JSON.parse(p);
   } catch(e) {
@@ -964,8 +966,7 @@ function loadFromStorage() {
 
 function saveEventConfig() {
   localStorage.setItem(LS_EVENT, JSON.stringify(eventConfig));
-  localStorage.setItem(LS_EJS, JSON.stringify(EJS_CONFIG));
-  // Sincronizar config del evento con Firebase
+  localStorage.setItem(LS_EJS, JSON.stringify(BREVO_CONFIG));
   if (window._firebaseReady) {
     window._fb.saveEventConfig(eventConfig).catch(e => console.warn('Firebase saveEventConfig:', e));
   }
@@ -1051,20 +1052,33 @@ window.addEventListener('online', updateOnlineStatus);
 window.addEventListener('offline', updateOnlineStatus);
 
 // =====================================================================
-// EMAILJS
+// BREVO EMAIL
 // =====================================================================
-function initEmailJS() {
-  if (EJS_CONFIG.publicKey && typeof emailjs !== 'undefined') {
-    emailjs.init({ publicKey: EJS_CONFIG.publicKey });
-    emailJSReady = true;
-    document.getElementById('email-hint').textContent = '✓ EmailJS configurado — QR se enviará al correo automáticamente';
+function initBrevo() {
+  brevoReady = !!(BREVO_CONFIG.apiKey && BREVO_CONFIG.senderEmail);
+  if (brevoReady) {
+    document.getElementById('email-hint').textContent = '✓ Brevo configurado — QR se enviará al correo automáticamente';
   }
 }
 
+async function generateQRBase64(ticketId) {
+  const tempDiv = document.createElement('div');
+  tempDiv.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
+  document.body.appendChild(tempDiv);
+  new QRCode(tempDiv, { text: ticketId, width: 250, height: 250, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.H });
+  await new Promise(r => setTimeout(r, 700));
+  const canvas = tempDiv.querySelector('canvas');
+  let base64 = '';
+  if (canvas) {
+    try { base64 = canvas.toDataURL('image/png').split(',')[1]; } catch(e) {}
+  }
+  document.body.removeChild(tempDiv);
+  return base64;
+}
+
 async function sendEmailWithQR(ticket) {
-  if (!emailJSReady || !EJS_CONFIG.serviceId || !EJS_CONFIG.templateId) {
-    // No hay config de EmailJS — poner en cola si al menos hay publicKey
-    if (EJS_CONFIG.publicKey) {
+  if (!brevoReady) {
+    if (BREVO_CONFIG.apiKey) {
       pendingEmails.push({ ticketId: ticket.id, attempts: 0, addedAt: Date.now() });
       saveToStorage();
       updatePendingBadge();
@@ -1073,42 +1087,58 @@ async function sendEmailWithQR(ticket) {
     return 'no-config';
   }
 
-  // Generar QR como base64
-  const tempDiv = document.createElement('div');
-  tempDiv.style.display = 'none';
-  document.body.appendChild(tempDiv);
-  new QRCode(tempDiv, { text: ticket.id, width: 200, height: 200, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.H });
+  const qrBase64 = await generateQRBase64(ticket.id);
 
-  // Esperar a que el canvas del QR esté listo
-  await new Promise(r => setTimeout(r, 600));
-  const canvas = tempDiv.querySelector('canvas');
-  let qrBase64 = '';
-  if (canvas) {
-    try { qrBase64 = canvas.toDataURL('image/png'); } catch(e) { console.warn('QR canvas error:', e); }
-  }
-  document.body.removeChild(tempDiv);
-  if (!qrBase64) {
-    console.warn('No se pudo generar QR base64 para el email');
-  }
+  const htmlContent = `
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#0d0a14;color:#f0eeff;border-radius:16px;overflow:hidden;">
+      <div style="background:#b78fff;padding:24px;text-align:center;">
+        <h1 style="margin:0;color:#000;font-size:24px;">🎟 Tu Entrada</h1>
+      </div>
+      <div style="padding:28px;">
+        <p style="font-size:16px;">Hola <strong>${ticket.name}</strong>,</p>
+        <p>Tu entrada ha sido generada exitosamente. Presenta el código QR a continuación en la entrada del evento.</p>
+        <div style="background:#161121;border-radius:12px;padding:20px;margin:20px 0;border:1px solid #2e2448;">
+          <p style="margin:6px 0;"><span style="color:#b78fff;">🎟 ID:</span> <strong>${ticket.id}</strong></p>
+          <p style="margin:6px 0;"><span style="color:#b78fff;">🎫 Tipo:</span> ${ticket.type}</p>
+          <p style="margin:6px 0;"><span style="color:#b78fff;">📍 Evento:</span> ${eventConfig.name || 'Evento'}</p>
+          ${eventConfig.date ? `<p style="margin:6px 0;"><span style="color:#b78fff;">📅 Fecha:</span> ${eventConfig.date}</p>` : ''}
+          ${eventConfig.venue ? `<p style="margin:6px 0;"><span style="color:#b78fff;">🏛 Lugar:</span> ${eventConfig.venue}</p>` : ''}
+        </div>
+        ${qrBase64 ? `<div style="text-align:center;margin:24px 0;"><img src="cid:qrcode" width="220" height="220" alt="QR Code" style="border-radius:8px;" /></div>` : ''}
+        <p style="color:#7a6fa0;font-size:13px;text-align:center;">Conserva este correo y presenta el QR en la entrada.</p>
+      </div>
+    </div>`;
 
-  const params = {
-    to_email: ticket.email,
-    to_name: ticket.name,
-    ticket_id: ticket.id,
-    ticket_type: ticket.type,
-    ticket_idnum: ticket.idNum,
-    event_name: eventConfig.name || 'Evento',
-    event_date: eventConfig.date || '',
-    event_venue: eventConfig.venue || '',
-    qr_image: qrBase64
+  const payload = {
+    sender: { name: BREVO_CONFIG.senderName || 'TicketOS', email: BREVO_CONFIG.senderEmail },
+    to: [{ email: ticket.email, name: ticket.name }],
+    subject: `🎟 Tu entrada — ${eventConfig.name || 'Evento'}`,
+    htmlContent,
+    attachment: qrBase64 ? [{
+      content: qrBase64,
+      name: `QR_${ticket.id}.png`,
+      contentId: 'qrcode'
+    }] : undefined
   };
 
   try {
-    await emailjs.send(EJS_CONFIG.serviceId, EJS_CONFIG.templateId, params);
-    return 'sent';
-  } catch (err) {
-    console.warn('EmailJS error:', err);
-    // Guardar como pendiente
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': BREVO_CONFIG.apiKey
+      },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) return 'sent';
+    const err = await res.json();
+    console.warn('Brevo error:', err);
+    pendingEmails.push({ ticketId: ticket.id, attempts: 1, addedAt: Date.now() });
+    saveToStorage();
+    updatePendingBadge();
+    return 'queued';
+  } catch(err) {
+    console.warn('Brevo fetch error:', err);
     pendingEmails.push({ ticketId: ticket.id, attempts: 1, addedAt: Date.now() });
     saveToStorage();
     updatePendingBadge();
@@ -1117,24 +1147,83 @@ async function sendEmailWithQR(ticket) {
 }
 
 async function retryPendingEmails() {
-  if (!emailJSReady || pendingEmails.length === 0) return;
+  if (!brevoReady || pendingEmails.length === 0) return;
   const toRetry = [...pendingEmails];
   for (const pe of toRetry) {
     const ticket = tickets.find(t => t.id === pe.ticketId);
     if (!ticket) { pendingEmails = pendingEmails.filter(p => p.ticketId !== pe.ticketId); continue; }
-    try {
-      const params = {
-        to_email: ticket.email, to_name: ticket.name,
-        ticket_id: ticket.id, ticket_type: ticket.type, ticket_idnum: ticket.idNum,
-        event_name: eventConfig.name || 'Evento',
-      };
-      await emailjs.send(EJS_CONFIG.serviceId, EJS_CONFIG.templateId, params);
+    const result = await sendEmailWithQR(ticket);
+    if (result === 'sent') {
       pendingEmails = pendingEmails.filter(p => p.ticketId !== pe.ticketId);
+      ticket.emailStatus = 'sent';
       showToast(`📧 Email enviado: ${ticket.name}`, 'success');
-    } catch(e) { /* deja pendiente */ }
+    }
   }
   saveToStorage();
   updatePendingBadge();
+}
+
+// =====================================================================
+// CARGA MASIVA POR CSV
+// =====================================================================
+async function importCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  // Detectar si tiene encabezado
+  const firstLine = lines[0].toLowerCase();
+  const hasHeader = firstLine.includes('nombre') || firstLine.includes('name') || firstLine.includes('correo');
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  if (dataLines.length === 0) { showToast('⚠️ CSV vacío o inválido', 'error'); return; }
+
+  const progressEl = document.getElementById('csv-progress');
+  progressEl.style.display = 'block';
+  closeSettings();
+
+  let success = 0, failed = 0;
+  const total = dataLines.length;
+
+  for (let i = 0; i < dataLines.length; i++) {
+    const line = dataLines[i];
+    // Soportar coma y punto y coma como separador
+    const sep = line.includes(';') ? ';' : ',';
+    const cols = line.split(sep).map(c => c.replace(/^"|"$/g, '').trim());
+    const [name, idNum, email, type] = cols;
+
+    if (!name || !idNum || !email) { failed++; continue; }
+
+    const ticketType = type || 'General';
+    const ticket = {
+      id: generateUID(),
+      name, idNum, email,
+      type: ticketType,
+      createdAt: new Date().toLocaleString('es-CO'),
+      createdTs: Date.now(),
+      used: false, usedAt: null, cancelled: false,
+      emailStatus: 'pending'
+    };
+
+    tickets.push(ticket);
+    success++;
+
+    progressEl.textContent = `⏳ Procesando ${i + 1} / ${total} — ${success} OK, ${failed} errores`;
+
+    // Enviar email con delay para no saturar la API
+    if (brevoReady) {
+      const result = await sendEmailWithQR(ticket);
+      ticket.emailStatus = result;
+      await new Promise(r => setTimeout(r, 300)); // 300ms entre emails
+    }
+  }
+
+  saveToStorage();
+  renderList();
+  updateStats();
+  progressEl.textContent = `✅ Completado: ${success} entradas generadas, ${failed} errores`;
+  showToast(`✅ ${success} entradas importadas`, 'success');
+  event.target.value = '';
 }
 
 function updatePendingBadge() {
@@ -1291,9 +1380,9 @@ function loadEventConfigUI() {
   document.getElementById('cfg-event-date').value = eventConfig.date || '';
   document.getElementById('cfg-event-venue').value = eventConfig.venue || '';
   document.getElementById('cfg-aforo').value = eventConfig.aforo || '';
-  document.getElementById('cfg-ejs-pubkey').value = EJS_CONFIG.publicKey || '';
-  document.getElementById('cfg-ejs-service').value = EJS_CONFIG.serviceId || '';
-  document.getElementById('cfg-ejs-template').value = EJS_CONFIG.templateId || '';
+  document.getElementById('cfg-brevo-key').value = BREVO_CONFIG.apiKey || '';
+  document.getElementById('cfg-brevo-name').value = BREVO_CONFIG.senderName || '';
+  document.getElementById('cfg-brevo-email').value = BREVO_CONFIG.senderEmail || '';
 }
 
 function saveSettings() {
@@ -1301,12 +1390,12 @@ function saveSettings() {
   eventConfig.date = document.getElementById('cfg-event-date').value;
   eventConfig.venue = document.getElementById('cfg-event-venue').value.trim();
   eventConfig.aforo = parseInt(document.getElementById('cfg-aforo').value) || 0;
-  EJS_CONFIG.publicKey = document.getElementById('cfg-ejs-pubkey').value.trim();
-  EJS_CONFIG.serviceId = document.getElementById('cfg-ejs-service').value.trim();
-  EJS_CONFIG.templateId = document.getElementById('cfg-ejs-template').value.trim();
+  BREVO_CONFIG.apiKey = document.getElementById('cfg-brevo-key').value.trim();
+  BREVO_CONFIG.senderName = document.getElementById('cfg-brevo-name').value.trim();
+  BREVO_CONFIG.senderEmail = document.getElementById('cfg-brevo-email').value.trim();
 
   saveEventConfig();
-  initEmailJS();
+  initBrevo();
   updateEventInfoBar();
   closeSettings();
   showToast('✅ Configuración guardada', 'success');
@@ -1421,7 +1510,7 @@ function updateEmailBadge(ticket, status) {
   } else {
     badge.className = 'email-badge pending';
     badge.children[0].textContent = '⚙️';
-    statusText.textContent = '— configura EmailJS para enviar';
+    statusText.textContent = '— configura Brevo para enviar';
   }
 }
 
@@ -1782,7 +1871,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Iniciar listeners de Firebase para sincronización en tiempo real
+  // Iniciar Brevo y Firebase
+  initBrevo();
   initFirebaseListeners();
 
   console.log('%c🎟 TicketOS', 'font-size:20px; font-weight:bold; color:#b78fff;');
