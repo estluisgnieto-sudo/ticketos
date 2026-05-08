@@ -1022,10 +1022,21 @@ function initFirebaseListeners() {
 // =====================================================================
 // OFFLINE DETECTION
 // =====================================================================
-function updateOnlineStatus() {
+async function checkRealConnectivity() {
+  // Verificar conectividad real haciendo un fetch ligero
+  try {
+    const res = await fetch('https://www.gstatic.com/generate_204', { method: 'HEAD', cache: 'no-store', mode: 'no-cors' });
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
+async function updateOnlineStatus() {
   const banner = document.getElementById('offline-banner');
   const header = document.getElementById('main-header');
-  if (!navigator.onLine) {
+  const reallyOnline = navigator.onLine ? await checkRealConnectivity() : false;
+  if (!reallyOnline) {
     banner.classList.add('show');
     header.classList.add('has-banner');
   } else {
@@ -1035,13 +1046,6 @@ function updateOnlineStatus() {
       setTimeout(retryPendingEmails, 2000);
     }
   }
-}
-
-function initOnlineStatus() {
-  const banner = document.getElementById('offline-banner');
-  const header = document.getElementById('main-header');
-  banner.classList.remove('show');
-  header.classList.remove('has-banner');
 }
 
 window.addEventListener('online', updateOnlineStatus);
@@ -1852,7 +1856,6 @@ function nextEntry() {
 // INIT
 // =====================================================================
 document.addEventListener('DOMContentLoaded', () => {
-  initOnlineStatus();
   loadFromStorage();
   updateOnlineStatus();
   updateStats();
