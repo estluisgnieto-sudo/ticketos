@@ -1070,7 +1070,18 @@ async function generateQRBase64(ticketId) {
   const canvas = tempDiv.querySelector('canvas');
   let base64 = '';
   if (canvas) {
-    try { base64 = canvas.toDataURL('image/png').split(',')[1]; } catch(e) {}
+    try {
+      // Crear un canvas más grande con margen blanco para que sea legible en cualquier fondo
+      const margin = 30;
+      const newCanvas = document.createElement('canvas');
+      newCanvas.width = canvas.width + margin * 2;
+      newCanvas.height = canvas.height + margin * 2;
+      const ctx = newCanvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+      ctx.drawImage(canvas, margin, margin);
+      base64 = newCanvas.toDataURL('image/png').split(',')[1];
+    } catch(e) {}
   }
   document.body.removeChild(tempDiv);
   return base64;
@@ -1727,7 +1738,12 @@ async function startCamera() {
       if (!loaded) { showToast('❌ Error cargando escáner. Recarga la app.', 'error'); return; }
     }
 
-    zxingReader = new window.ZXing.BrowserQRCodeReader();
+    // Hints para mejor detección: intentar invertir colores (QR oscuro sobre fondo claro Y viceversa)
+    const hints = new Map();
+    hints.set(window.ZXing.DecodeHintType.TRY_HARDER, true);
+    hints.set(window.ZXing.DecodeHintType.ALSO_INVERTED, true);
+    zxingReader = new window.ZXing.BrowserQRCodeReader(hints);
+
     const videoEl = document.getElementById('camera-video');
 
     document.getElementById('scanner-idle').classList.add('hidden');
@@ -1737,8 +1753,13 @@ async function startCamera() {
     cameraActive = true;
     showToast('📷 Cámara activa — apunta al QR', 'info');
 
+    // Alta resolución para mejor detección
     const constraints = {
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 }
+      }
     };
     cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
     videoEl.srcObject = cameraStream;
