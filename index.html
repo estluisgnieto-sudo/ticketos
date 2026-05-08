@@ -11,7 +11,7 @@
 
 <!-- External libs -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 
 <!-- Firebase -->
 <script type="module">
@@ -1710,21 +1710,12 @@ async function toggleCamera() {
 
 let zxingReader = null;
 
-async function waitForZXing(maxWait = 8000) {
-  const start = Date.now();
-  while (!window.ZXing) {
-    if (Date.now() - start > maxWait) return false;
-    await new Promise(r => setTimeout(r, 200));
-  }
-  return true;
-}
-
 async function startCamera() {
   try {
     if (!window.ZXing) {
       showToast('⚠️ Cargando escáner...', 'info');
-      const loaded = await waitForZXing();
-      if (!loaded) { showToast('❌ Error cargando escáner. Recarga la app.', 'error'); return; }
+      await new Promise(r => setTimeout(r, 2000));
+      if (!window.ZXing) { showToast('❌ Error cargando escáner', 'error'); return; }
     }
 
     zxingReader = new window.ZXing.BrowserQRCodeReader();
@@ -1737,13 +1728,15 @@ async function startCamera() {
     cameraActive = true;
     showToast('📷 Cámara activa — apunta al QR', 'info');
 
+    // Obtener cámara trasera usando constraints directamente
     const constraints = {
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      video: { facingMode: { ideal: 'environment' } }
     };
     cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
     videoEl.srcObject = cameraStream;
     await videoEl.play();
 
+    // Escanear continuamente con ZXing desde el video
     zxingReader.decodeFromStream(cameraStream, videoEl, (result, err) => {
       if (result) {
         const scanInput = document.getElementById('scan-input');
